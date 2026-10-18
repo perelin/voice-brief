@@ -1,0 +1,14 @@
+{
+  "name": "voice-brief",
+  "description": "voice-brief, a Claude Code mod",
+  "owner": {
+    "name": "Sebastian Patino-Lang"
+  },
+  "plugins": [
+    {
+      "name": "voice-brief",
+      "source": "./",
+      "description": "Speaks a short briefing of Claude's last answer on demand: the gist, the next step, the open decisions"
+    }
+  ]
+}

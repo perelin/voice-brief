@@ -1,112 +1,104 @@
-# jarvis
+# voice-brief
 
-Claude-Code-Mod: `/jarvis` liest ein gesprochenes Briefing der letzten Antwort vor –
-Lage in ein, zwei Sätzen, was als Nächstes zu tun ist, welche Entscheidungen offen sind
-(mit Empfehlung, falls die Antwort eine gab). Spricht nie von selbst, damit mehrere
-offene Sessions sich nicht gegenseitig zuquatschen.
+A Claude Code mod that reads you a short spoken briefing of Claude's last answer when you ask for it: the gist in a sentence or two, what you have to do next, and every decision that is still open, with the recommendation if the answer gave one.
 
-## Ablauf
+- **Only on demand.** `/voice-brief` speaks; nothing speaks on its own. With several sessions open, they don't talk over each other.
+- **Interruptible.** Start typing in the prompt and the voice stops. While it speaks, a band above the prompt offers **Stop**.
+- **Made for the ear.** The briefing is written for listening: no markdown, code, paths or URLs; those are left to the terminal.
+- **ElevenLabs voice, system voice as fallback.** Without a key, or if ElevenLabs fails, macOS `say` speaks instead and the command output says why.
 
-1. `$.session.messages()` – die letzte Runde: alle Assistant-Texte seit dem letzten
-   echten Prompt, plus der Prompt selbst als Kontext.
-2. `$.model.complete` (Default `haiku`) schreibt daraus ein Briefing fürs Ohr:
-   Sprachcode in Zeile 1, dann reiner Sprechtext; Markdown, Code, URLs und Pfade
-   werden zusätzlich herausgefiltert.
-3. ElevenLabs (`/v1/text-to-speech/{voice}/with-timestamps`, liefert die MP3 als
-   base64 – `$.http.fetch` liest nur Text) → `$.audio.play`. Stimme je Sprache.
-   Standard ist in Stücken: kurzes erstes Stück (≤ 120 Zeichen), danach Satzgruppen
-   bis 400 Zeichen, jeweils mit `previous_text`/`next_text` für die Satzmelodie; die
-   Stimme startet, sobald das erste Stück da ist. Höchstens zwei Anfragen gleichzeitig
-   (Starter erlaubt drei, eine bleibt für andere Sessions frei); ein 429 wird bis zu
-   zweimal wiederholt, bevor die Systemstimme übernimmt.
-4. Schlägt ElevenLabs fehl (kein Key, HTTP-Fehler), spricht die Systemstimme (`say`)
-   und die Command-Ausgabe nennt den Grund.
+## Install
 
-Das Briefing steht zusätzlich als Command-Ausgabe im Transkript.
+In a Claude Code session:
 
-## Unterbrechen
-
-- **Tippen im Prompt** stoppt die Stimme sofort (`prompt.edit`), noch ausstehende Stücke
-  werden nicht mehr gespielt (bezahlt sind sie trotzdem, sie wurden schon angefragt).
-- Solange Jarvis spricht, steht über dem Prompt **„🔊 Jarvis spricht – tippen oder [Stop]"**:
-  klicken, oder `ctrl+x tab` und `s`.
-- Ein neues `/jarvis` beendet das laufende Briefing vorher.
-- Die Systemstimme (Fallback oder `provider: system`) lässt sich nicht unterbrechen;
-  die Leiste erscheint dann nicht.
-
-## Laden
-
-Für eine Session:
-
-```sh
-claude --plugin-dir ~/.claude/mods/jarvis
+```
+/plugin install voice-brief --marketplace perelin/voice-brief
 ```
 
-Dauerhaft: den Pfad in `CLAUDE_CODE_PLUGIN_DIRS` setzen (Prozess-Env oder `env`-Block
-der maschinen-lokalen `~/.claude/settings.json`).
+Answer `y` to add the marketplace, then pick a scope (user scope for every project). New sessions load the mod; `/plugin` turns it off or on.
 
-## API-Key
+To update: `/plugin marketplace update voice-brief`, `/plugin update voice-brief@voice-brief`, then `/reload-plugins` in a running session.
 
-Reihenfolge: `ELEVENLABS_API_KEY` aus der Umgebung, sonst die erste Zeile von
-`pass show services/elevenlabs/api-key` (Eintrag per `apiKeyPassEntry` änderbar).
-Der Key wird pro Mod-Ladung einmal gelesen.
+### ElevenLabs API key
 
-## Einstellungen
+The key is read once per load, in this order:
 
-Unter `pluginConfigs.jarvis.options` in den Settings bzw. im `/config`-Menü:
+1. `ELEVENLABS_API_KEY` in the environment
+2. the first line of `pass show services/elevenlabs/api-key` ([pass](https://www.passwordstore.org/); the entry is the `apiKeyPassEntry` setting)
 
-| Feld | Default | Bedeutung |
-| --- | --- | --- |
-| `model` | `haiku` | Modell fürs Briefing |
-| `length` | `normal` | `normal` (≤ 120 Wörter) oder `short` (≤ 60); `/jarvis kurz` bzw. `/jarvis normal` übersteuert einmalig |
-| `chunked` | `true` | in Stücken vertonen, damit die Stimme früher startet |
-| `provider` | `elevenlabs` | `elevenlabs` (mit Fallback) oder `system` |
-| `elevenModel` | `eleven_v4` | ElevenLabs-Modell, siehe Latenz unten |
-| `elevenVoiceDe` | `yxa1FRMiemMJZYjqarqk` | Jonas – dry and factual |
-| `elevenVoiceEn` | `BNgbHR0DNeZixGQVzloa` | David – Deep and Engaging Storyteller (britisch) |
-| `apiKeyPassEntry` | `services/elevenlabs/api-key` | pass-Eintrag mit dem Key |
-| `systemVoiceDe` | `Anna` | Fallback-Stimme Deutsch (`say -v '?'`) |
-| `systemVoiceEn` | `Samantha` | Fallback-Stimme Englisch |
+Without either, the system voice speaks.
 
-Stimmen-IDs des eigenen Accounts:
-`curl -s "https://api.elevenlabs.io/v2/voices?page_size=100" -H "xi-api-key: $KEY" | jq -r '.voices[] | [.voice_id, .name] | @tsv'`
+## Use
 
-`language_code` geht nur an Modelle, die ihn annehmen (Flash, Turbo, v4); `eleven_multilingual_v2`
-lehnt ihn ab.
+| Command | What it does |
+|---|---|
+| `/voice-brief` | Brief the last answer at the configured length |
+| `/voice-brief short` (or `kurz`) | Up to 60 words, this once |
+| `/voice-brief normal` | Up to 120 words, this once |
 
-## Latenz und Tempo
+To stop: type anything in the prompt, press **Stop** in the band above the prompt (click, or `ctrl+x tab` then `s`), or run `/voice-brief` again. The system voice cannot be interrupted, so the band only appears for ElevenLabs.
 
-Gemessen am 18.10.26 mit Jonas, ein Stück am Stück (776 Zeichen, ≈ 50 s Sprechzeit):
+The briefing is written in the language of the answer (German or English) and also printed as the command's output.
 
-| Modell | Synthese | Tempo (`voice_settings.speed`) |
-| --- | --- | --- |
-| `eleven_flash_v2_5` | 1,7 s | wirkt (1.15 → ≈ 25 % kürzer) |
-| `eleven_v4_turbo` | 4,9 s | wird angenommen, aber ignoriert |
-| `eleven_v4` | 10,5 s | wird angenommen, aber ignoriert |
+## Settings
 
-Ein erstes Stück von ≈ 80 Zeichen braucht mit v4 ≈ 1,9 s, mit v4 Turbo ≈ 0,8 s – daher
-die Stücke. Dazu kommt die Briefing-Erzeugung durch das `model`.
+In `/config`, or under `pluginConfigs["voice-brief"].options` in settings:
 
-## Kosten
+| Setting | Default | What it does |
+|---|---|---|
+| `model` | `haiku` | Model that writes the briefing |
+| `length` | `normal` | `normal` (≤ 120 words) or `short` (≤ 60) |
+| `chunked` | `true` | Synthesize in chunks so the voice starts sooner |
+| `provider` | `elevenlabs` | `elevenlabs` (with fallback) or `system` |
+| `elevenModel` | `eleven_v4` | ElevenLabs model, see below |
+| `elevenVoiceDe` | `yxa1FRMiemMJZYjqarqk` | German voice (Jonas – dry and factual) |
+| `elevenVoiceEn` | `BNgbHR0DNeZixGQVzloa` | English voice (David – Deep and Engaging Storyteller, British) |
+| `apiKeyPassEntry` | `services/elevenlabs/api-key` | pass entry with the key |
+| `systemVoiceDe` | `Anna` | German fallback voice (`say -v '?'` lists them) |
+| `systemVoiceEn` | `Samantha` | English fallback voice |
 
-Ein Briefing hat etwa 300–900 Zeichen. v4 kostet einen Credit pro Zeichen, Flash und
-v4 Turbo die Hälfte: Starter (90k Credits) reicht mit v4 für grob 100–150 normale
-Briefings im Monat, mit `short` etwa doppelt so viele. Ein wiederholtes `/jarvis` auf
-dieselbe Antwort synthetisiert neu.
-
-## Entwickeln
+The default voices come from the ElevenLabs voice library. To list the voices your account can use:
 
 ```sh
-claude plugin validate ~/.claude/mods/jarvis
-claude plugin test ~/.claude/mods/jarvis
+curl -s "https://api.elevenlabs.io/v2/voices?page_size=100" -H "xi-api-key: $ELEVENLABS_API_KEY" | jq -r '.voices[] | [.voice_id, .name] | @tsv'
 ```
 
-Funktionen, die `$` bekommen, müssen auf oberster Ebene als `function`-Deklaration stehen
-(importierte ebenso) – sonst lädt das Modul nicht.
+## Models, latency, cost
 
-## Grenzen
+Measured on 18 Oct 2026 with the German default voice, one 776-character briefing (≈ 50 s of speech) in a single request:
 
-- Sieht nur die letzte Runde. Entscheidungen, die weiter zurück offen geblieben sind,
-  kennt das Briefing nicht (`$.model.fork` über das ganze Transkript wäre der Ausbau,
-  kostet aber das Session-Modell).
-- Die Audio-Wiedergabe läuft über `afplay`, also nur auf macOS.
+| Model | Synthesis | `voice_settings.speed` | Price per 1k characters |
+|---|---|---|---|
+| `eleven_flash_v2_5` | 1.7 s | works | $0.04 |
+| `eleven_v4_turbo` | 4.9 s | accepted, ignored | $0.04 |
+| `eleven_v4` | 10.5 s | accepted, ignored | $0.08 |
+
+That is why briefings are spoken in chunks: a short first chunk (≤ 120 characters, ≈ 2 s with v4) gets the voice going while the rest, in groups of sentences up to 400 characters, is still being synthesized. Each request carries its neighbours as `previous_text` / `next_text` to keep the intonation across the cut. At most two requests run at once (the Starter plan allows three and answers `429` beyond that, leaving one for another session); a `429` is retried twice before the system voice takes over. After a stop, no further chunks are requested.
+
+A briefing is roughly 300–900 characters. With `eleven_v4` the Starter plan (90k credits a month) covers about 100–150 normal briefings; `short` doubles that, `eleven_flash_v2_5` doubles it again.
+
+## How it works
+
+1. `$.session.messages()` gives the last turn: every assistant text since the last real prompt, plus that prompt as context.
+2. `$.model.complete` turns it into a spoken briefing: the language code on line 1, then plain sentences. Markdown, code, URLs and file paths are filtered out again before speaking.
+3. ElevenLabs' `/v1/text-to-speech/{voice}/with-timestamps` returns the MP3 as base64 (a mod's `$.http.fetch` reads text bodies only), played with `$.audio.play` and an `AbortSignal`.
+4. A `prompt.edit` hook aborts the playback on the first key; an `AbovePrompt` band shows Stop while it plays.
+
+## Develop
+
+```sh
+claude plugin validate .
+claude plugin test .
+tsc -p .            # once a session has loaded the mod and laid its types
+claude --plugin-dir .
+```
+
+## Limits
+
+- Only the last turn is briefed. Decisions left open further back are not seen.
+- Audio plays through `afplay`, so macOS only.
+- Stopped chunks that were already requested are still billed.
+
+## License
+
+MIT
