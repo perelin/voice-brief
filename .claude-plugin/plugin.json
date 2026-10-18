@@ -1,0 +1,25 @@
+{
+  "name": "jarvis",
+  "version": "0.1.0",
+  "description": "/jarvis speaks a briefing of the last answer: gist, what to do next, which decisions are open. Never speaks on its own.",
+  "userConfig": {
+    "model": {
+      "type": "string",
+      "title": "Briefing model",
+      "description": "Model alias or id that turns the last answer into the spoken briefing.",
+      "default": "haiku"
+    },
+    "voiceDe": {
+      "type": "string",
+      "title": "German voice",
+      "description": "macOS system voice for German briefings (say -v '?' lists them).",
+      "default": "Anna"
+    },
+    "voiceEn": {
+      "type": "string",
+      "title": "English voice",
+      "description": "macOS system voice for English briefings (say -v '?' lists them).",
+      "default": "Samantha"
+    }
+  }
+}
