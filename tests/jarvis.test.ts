@@ -270,11 +270,13 @@ describe('/jarvis with ElevenLabs', () => {
 })
 
 describe('/jarvis briefing length', () => {
-  test('normal by default: up to 120 words', async ($, on) => {
+  test('normal by default: up to 120 words, in the answer\'s own tone without a persona', async ($, on) => {
     const w = world(on)
     await $.command.run(JARVIS)
 
     expect(w.systems[0]).toContain('At most 120 words.')
+    expect(w.systems[0]).toContain('no persona')
+    expect(w.systems[0]).not.toMatch(/J\.A\.R\.V\.I\.S|Tony Stark|Sir\b/)
   })
 
   test('the length option makes it short', { options: { length: 'short' } }, async ($, on) => {
@@ -362,6 +364,10 @@ describe('briefing helpers', () => {
 
   test('toSpeech drops markdown, code and links', () => {
     expect(toSpeech('## Titel\n- **fett** `code`\n```ts\nx()\n```\nsiehe https://x.y/z')).toBe('Titel fett code siehe')
+  })
+
+  test('toSpeech reads underscores as spaces', () => {
+    expect(toSpeech('Standard ist jetzt eleven_v4.')).toBe('Standard ist jetzt eleven v4.')
   })
 
   test('toSpeech drops file paths but keeps the sentence around them', () => {

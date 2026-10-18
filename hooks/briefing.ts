@@ -10,7 +10,7 @@ const MAX_ANSWER_CHARS = 24000
 
 export const WORDS: Record<Length, number> = { normal: 120, short: 60 }
 
-export const systemPrompt = (length: Length): string => `You turn a coding assistant's last answer into a short spoken briefing for its user, the way J.A.R.V.I.S. briefs Tony Stark: calm, precise, slightly dry, speaking to the user directly.
+export const systemPrompt = (length: Length): string => `You turn a coding assistant's last answer into a short spoken briefing for its user. Keep the answer's own plain tone: no persona, no titles or honorifics, no acknowledgements like "Verstanden" or "Understood". Address the user the way the answer does (in German with "du"). Start directly with the gist.
 
 Output format:
 Line 1: only the language code of the answer, "de" or "en".
@@ -84,7 +84,8 @@ export const toSpeech = (text: string): string =>
     .replace(/https?:\/\/\S+/g, ' ')
     .replace(PATH, ' ')
     .replace(/^\s*(?:[-*+>]|\d+\.)\s+/gm, '')
-    .replace(/[`*#_|>]/g, '')
+    .replace(/_/g, ' ')
+    .replace(/[`*#|>]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 
