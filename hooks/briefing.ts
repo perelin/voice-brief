@@ -61,8 +61,17 @@ export const briefingPrompt = (turn: Turn): string =>
     .filter(Boolean)
     .join('\n\n')
 
-// Rooted (/x, ~/x, ./x), with a file extension, or three segments deep; "ja/nein" stays.
-const PATH = /(?<![\w/])(?:~|\.{1,2})?\/[\w.@-]+(?:\/[\w.@-]+)*|\b(?:[\w.@-]+\/)+[\w@-]+\.[a-z]\w{0,4}\b|\b(?:[\w.@-]+\/){2,}[\w.@-]+/gi
+// ~/x, ./x, /a/b, a file with extension, or three segments deep; "/jarvis" and "ja/nein" stay.
+const SEG = String.raw`\.?[\w@-]+(?:\.[\w@-]+)*`
+const PATH = new RegExp(
+  [
+    String.raw`(?<![\w/])(?:~|\.{1,2})(?:\/${SEG})+`,
+    String.raw`(?<![\w/~.])(?:\/${SEG}){2,}`,
+    String.raw`\b(?:${SEG}\/)+[\w@-]+\.[a-z]\w{0,4}\b`,
+    String.raw`\b(?:${SEG}\/){2,}${SEG}`,
+  ].join('|'),
+  'gi',
+)
 
 // The prompt already asks for plain speech; this catches what slips through.
 export const toSpeech = (text: string): string =>

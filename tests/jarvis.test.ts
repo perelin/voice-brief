@@ -289,6 +289,7 @@ describe('briefing helpers', () => {
     expect(toSpeech('Der Bug in src/auth/session.ts und ~/.claude/x.md ist weg, mods/jarvis/hooks auch. Mergen ja/nein, und/oder warten?')).toBe(
       'Der Bug in und ist weg, auch. Mergen ja/nein, und/oder warten?',
     )
+    expect(toSpeech('Ruf /jarvis auf, Logs in /var/log/x und ./build.')).toBe('Ruf /jarvis auf, Logs in und .')
   })
 
   test('parseBriefing falls back to guessing the language when the tag is missing', () => {
