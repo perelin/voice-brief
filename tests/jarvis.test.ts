@@ -66,8 +66,20 @@ type Setup = {
   messages?: SessionMessage[]
   reply?: ModelCompleteResult
   http?: HttpResponse
+  // Answered in order, one per request, before falling back to `http` or the default.
+  httpQueue?: HttpResponse[]
+  httpDelayMs?: number
   passExit?: number
 }
+
+const TOO_MANY: HttpResponse = {
+  status: 429,
+  ok: false,
+  headers: {},
+  text: JSON.stringify({ detail: { message: 'Too many concurrent requests.' } }),
+}
+
+const MANY_CHUNKS = Array.from({ length: 6 }, (_, i) => `Satz ${i} ${'x'.repeat(280)}.`).join(' ')
 
 type Request = { url: string; headers?: Record<string, string>; body: Record<string, string> }
 
@@ -77,6 +89,8 @@ const world = (on: On, setup: Setup = {}) => {
   const spoken: { text: string; voice?: string }[] = []
   const played: string[] = []
   const requests: Request[] = []
+  const inFlight = { now: 0, max: 0 }
+  const queue = [...(setup.httpQueue ?? [])]
   const clock = mock.clock(on)
   mock.env(on, {})
   on('session.messages', () => ({ value: setup.messages ?? [user('Q'), assistant('A')] }))
@@ -96,11 +110,19 @@ const world = (on: On, setup: Setup = {}) => {
     },
   }))
   // The "audio" is the chunk's own text, so playback order is readable.
-  on('http.fetch', (_$, e) => {
+  on('http.fetch', async (_$, e) => {
     const body = JSON.parse(e.init?.body ?? '{}') as Record<string, string>
     requests.push({ url: e.url, headers: e.init?.headers, body })
+    inFlight.now += 1
+    inFlight.max = Math.max(inFlight.max, inFlight.now)
+    if (setup.httpDelayMs) {
+      await clock.sleep(setup.httpDelayMs)
+    }
+    inFlight.now -= 1
 
-    return { value: setup.http ?? { status: 200, ok: true, headers: {}, text: JSON.stringify({ audio_base64: body.text }) } }
+    return {
+      value: queue.shift() ?? setup.http ?? { status: 200, ok: true, headers: {}, text: JSON.stringify({ audio_base64: body.text }) },
+    }
   })
   on('audio.play', async (_$, e) => {
     played.push(e.clip.base64 ?? '')
@@ -117,7 +139,7 @@ const world = (on: On, setup: Setup = {}) => {
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => h($.ui.resolve(e).Box, { key: 'engine-band' }) as RenderElement)
   on('prompt.edit', (_$, e) => ({ text: e.text, cursor: e.cursor }))
 
-  return { prompts, systems, spoken, played, requests, clock }
+  return { prompts, systems, spoken, played, requests, inFlight, clock }
 }
 
 // The kit raises prompt.edit like any engine event, but its typed $ leaves the noun out.
@@ -232,6 +254,64 @@ describe('/jarvis with ElevenLabs', () => {
     await band.press({ key: 'stop' })
     expect(await band.find({ key: 'stop' })).toBeUndefined()
     await band.unmount()
+  })
+
+  test('never has more than two requests in flight, however many chunks', async ($, on) => {
+    const w = world(on, { reply: answered(`de\n${MANY_CHUNKS}`), httpDelayMs: 1000 })
+    const parts = chunks(MANY_CHUNKS)
+    expect(parts).toHaveLength(6)
+
+    const run = $.command.run(JARVIS)
+    for (let i = 0; i < 4; i += 1) {
+      await w.clock.advance(1000)
+    }
+    await run
+
+    expect(w.requests.map(r => r.body.text)).toEqual(parts)
+    expect(w.inFlight.max).toBe(2)
+  })
+
+  test('a stop also keeps the chunks not yet requested from being requested', async ($, on) => {
+    const w = world(on, { reply: answered(`de\n${MANY_CHUNKS}`), httpDelayMs: 1000 })
+
+    const run = $.command.run(JARVIS)
+    await w.clock.advance(1000)
+    await run
+    expect(w.played).toHaveLength(1)
+
+    await typeKey($, 'a')
+    await w.clock.advance(PLAY_MS * 6)
+
+    expect(w.requests.length).toBeLessThan(6)
+    expect(w.played).toHaveLength(1)
+  })
+
+  test('retries a 429 instead of falling back to the system voice', async ($, on) => {
+    const w = world(on, { httpQueue: [TOO_MANY] })
+
+    const run = $.command.run(JARVIS)
+    await w.clock.advance(600)
+    const result = await run
+    await w.clock.settle()
+
+    expect(result.text).toBe('Alles erledigt. Keine Entscheidungen offen.')
+    expect(w.requests).toHaveLength(2)
+    expect(w.played).toEqual(['Alles erledigt. Keine Entscheidungen offen.'])
+    expect(w.spoken).toEqual([])
+  })
+
+  test('falls back to the system voice once the 429 retries are used up', async ($, on) => {
+    const w = world(on, { httpQueue: [TOO_MANY, TOO_MANY, TOO_MANY] })
+
+    const run = $.command.run(JARVIS)
+    await w.clock.advance(600)
+    await w.clock.advance(1200)
+    const result = await run
+    await w.clock.settle()
+
+    expect(w.requests).toHaveLength(3)
+    expect(result.text).toContain('Systemstimme – ElevenLabs 429')
+    expect(w.spoken).toHaveLength(1)
   })
 
   test('chunked off sends the whole briefing in one request', { options: { chunked: false } }, async ($, on) => {

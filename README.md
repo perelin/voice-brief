@@ -15,8 +15,10 @@ offene Sessions sich nicht gegenseitig zuquatschen.
 3. ElevenLabs (`/v1/text-to-speech/{voice}/with-timestamps`, liefert die MP3 als
    base64 – `$.http.fetch` liest nur Text) → `$.audio.play`. Stimme je Sprache.
    Standard ist in Stücken: kurzes erstes Stück (≤ 120 Zeichen), danach Satzgruppen
-   bis 400 Zeichen; alle Anfragen gehen sofort raus (mit `previous_text`/`next_text`
-   für die Satzmelodie), die Stimme startet, sobald das erste Stück da ist.
+   bis 400 Zeichen, jeweils mit `previous_text`/`next_text` für die Satzmelodie; die
+   Stimme startet, sobald das erste Stück da ist. Höchstens zwei Anfragen gleichzeitig
+   (Starter erlaubt drei, eine bleibt für andere Sessions frei); ein 429 wird bis zu
+   zweimal wiederholt, bevor die Systemstimme übernimmt.
 4. Schlägt ElevenLabs fehl (kein Key, HTTP-Fehler), spricht die Systemstimme (`say`)
    und die Command-Ausgabe nennt den Grund.
 

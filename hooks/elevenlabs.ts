@@ -36,7 +36,7 @@ export async function synthesize($: EngineInterface, request: ElevenLabsRequest)
     body: JSON.stringify(body),
   })
   if (!response.ok) {
-    throw new Error(`ElevenLabs ${response.status}${detail(response.text)}`)
+    throw new ElevenLabsError(response.status, `ElevenLabs ${response.status}${detail(response.text)}`)
   }
 
   const audio = (JSON.parse(response.text) as { audio_base64?: unknown }).audio_base64
@@ -45,6 +45,31 @@ export async function synthesize($: EngineInterface, request: ElevenLabsRequest)
   }
 
   return audio
+}
+
+export class ElevenLabsError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+const RETRIES_ON_429 = 2
+
+// The plan caps parallel requests; another session's briefing can hold a slot too.
+export async function synthesizeRetrying($: EngineInterface, request: ElevenLabsRequest): Promise<string> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await synthesize($, request)
+    } catch (error) {
+      if (!(error instanceof ElevenLabsError) || error.status !== 429 || attempt >= RETRIES_ON_429) {
+        throw error
+      }
+      await $.clock.sleep(600 * (attempt + 1))
+    }
+  }
 }
 
 const detail = (text: string): string => {

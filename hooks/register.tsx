@@ -3,7 +3,7 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import { briefingPrompt, chunks, lastTurn, parseBriefing, systemPrompt } from './briefing'
 import type { Lang, Length } from './briefing'
-import { synthesize } from './elevenlabs'
+import { synthesizeRetrying } from './elevenlabs'
 import type { ElevenLabsRequest } from './elevenlabs'
 
 const isSpeaking = atom({ plugin: 'jarvis', key: 'isSpeaking' } as const, false)
@@ -88,8 +88,7 @@ export const register: Register = (on, options) => {
       try {
         const key = await loadKey($, passEntry)
         const parts = isChunked ? chunks(speech) : [speech]
-        // Every request leaves while the hook runs; only the first is awaited before the voice starts.
-        const pending = synthesizeAll($, parts, { key, voiceId: elevenVoices[lang], model: elevenModel, lang })
+        const pending = synthesizeAll($, parts, { key, voiceId: elevenVoices[lang], model: elevenModel, lang }, controller.signal)
         await pending[0]
         if (!controller.signal.aborted) {
           void playAll($, controller, pending)
@@ -147,17 +146,26 @@ async function settle($: EngineInterface, controller: AbortController): Promise<
   }
 }
 
+// Two in flight: chunk i starts once chunk i-2 is done, leaving one of the plan's three slots free.
+const MAX_IN_FLIGHT = 2
+
 function synthesizeAll(
   $: EngineInterface,
   parts: readonly string[],
   base: Omit<ElevenLabsRequest, 'text' | 'previousText' | 'nextText'>,
+  signal: AbortSignal,
 ): Promise<string>[] {
   const pending: Promise<string>[] = []
   for (let i = 0; i < parts.length; i += 1) {
-    const request = synthesize($, { ...base, text: parts[i] ?? '', previousText: parts[i - 1], nextText: parts[i + 1] })
+    const request: ElevenLabsRequest = { ...base, text: parts[i] ?? '', previousText: parts[i - 1], nextText: parts[i + 1] }
+    const slot = pending[i - MAX_IN_FLIGHT]
+    const audio =
+      slot === undefined
+        ? synthesizeRetrying($, request)
+        : slot.then(() => (signal.aborted ? Promise.reject(new Error('gestoppt')) : synthesizeRetrying($, request)))
     // Awaited later by playAll; after a stop nobody awaits it, which must not surface as unhandled.
-    request.catch(() => undefined)
-    pending.push(request)
+    audio.catch(() => undefined)
+    pending.push(audio)
   }
 
   return pending
