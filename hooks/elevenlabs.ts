@@ -41,7 +41,7 @@ export async function synthesize($: EngineInterface, request: ElevenLabsRequest)
 
   const audio = (JSON.parse(response.text) as { audio_base64?: unknown }).audio_base64
   if (typeof audio !== 'string' || !audio) {
-    throw new Error('ElevenLabs lieferte kein Audio')
+    throw new Error('ElevenLabs returned no audio')
   }
 
   return audio

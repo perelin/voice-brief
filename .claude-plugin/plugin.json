@@ -1,7 +1,8 @@
 {
-  "name": "jarvis",
-  "version": "0.3.0",
-  "description": "/jarvis speaks a briefing of the last answer: gist, what to do next, which decisions are open. Never speaks on its own; typing stops it.",
+  "name": "voice-brief",
+  "version": "0.4.0",
+  "author": { "name": "Sebastian Patino-Lang" },
+  "description": "/voice-brief speaks a short briefing of Claude's last answer: the gist, what to do next, which decisions are open. Never speaks on its own; typing stops it.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "model": {
@@ -13,7 +14,7 @@
     "length": {
       "type": "string",
       "title": "Briefing length",
-      "description": "normal is up to 120 words, short up to 60. /jarvis kurz or /jarvis normal overrides it for one run.",
+      "description": "normal is up to 120 words, short up to 60. /voice-brief short (or kurz) and /voice-brief normal override it for one run.",
       "default": "normal",
       "options": ["normal", "short"]
     },

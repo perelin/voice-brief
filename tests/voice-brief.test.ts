@@ -19,15 +19,15 @@ const usage = {
   cache_creation_input_tokens: 0,
 }
 
-const JARVIS: CommandRunInput = {
-  command: 'jarvis',
+const RUN: CommandRunInput = {
+  command: 'voice-brief',
   args: '',
   origin: { kind: 'composer' },
   presentation: { isFullscreen: false, columns: 120 },
 }
 
 const BAND = {
-  plugin: 'jarvis',
+  plugin: 'voice-brief',
   surface: 'terminal',
   component: 'AbovePrompt',
   props: {
@@ -135,7 +135,7 @@ const world = (on: On, setup: Setup = {}) => {
 
     return { value: { via: 'system' as const } }
   })
-  on('command.register', () => ({ value: { command: 'jarvis' } }))
+  on('command.register', () => ({ value: { command: 'voice-brief' } }))
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => h($.ui.resolve(e).Box, { key: 'engine-band' }) as RenderElement)
   on('prompt.edit', (_$, e) => ({ text: e.text, cursor: e.cursor }))
 
@@ -161,7 +161,7 @@ const stopButton = async ($: Engine) => {
   return found
 }
 
-describe('/jarvis with ElevenLabs', () => {
+describe('/voice-brief with ElevenLabs', () => {
   test('speaks a German briefing with the German voice on eleven_v4 and shows Stop while it plays', async ($, on) => {
     const w = world(on, {
       messages: [
@@ -173,7 +173,7 @@ describe('/jarvis with ElevenLabs', () => {
       reply: answered('de\nDer Mod steht. Erstens: Ablage in skills oder mods, **Empfehlung** skills.'),
     })
 
-    const result = await $.command.run(JARVIS)
+    const result = await $.command.run(RUN)
     await w.clock.settle()
 
     expect(result.text).toBe('Der Mod steht. Erstens: Ablage in skills oder mods, Empfehlung skills.')
@@ -195,7 +195,7 @@ describe('/jarvis with ElevenLabs', () => {
   }, async ($, on) => {
     const w = world(on, { reply: answered('en\nTests pass. One decision: merge now or wait.') })
 
-    await $.command.run(JARVIS)
+    await $.command.run(RUN)
     await w.clock.settle()
 
     expect(w.requests[0]?.url).toContain('/v1/text-to-speech/voice-en/with-timestamps')
@@ -210,7 +210,7 @@ describe('/jarvis with ElevenLabs', () => {
     const parts = chunks(LONG_BRIEFING)
     expect(parts.length).toBeGreaterThan(2)
 
-    const result = await $.command.run(JARVIS)
+    const result = await $.command.run(RUN)
     await w.clock.settle()
 
     expect(result.text).toBe(LONG_BRIEFING)
@@ -234,7 +234,7 @@ describe('/jarvis with ElevenLabs', () => {
 
   test('typing stops the voice and drops the chunks still to come', async ($, on) => {
     const w = world(on, { reply: answered(`de\n${LONG_BRIEFING}`) })
-    await $.command.run(JARVIS)
+    await $.command.run(RUN)
     await w.clock.settle()
     expect(await stopButton($)).toBeDefined()
 
@@ -247,7 +247,7 @@ describe('/jarvis with ElevenLabs', () => {
 
   test('the Stop button stops the voice', async ($, on) => {
     const w = world(on)
-    await $.command.run(JARVIS)
+    await $.command.run(RUN)
     await w.clock.settle()
 
     const band = await $.ui.mount(BAND)
@@ -261,7 +261,7 @@ describe('/jarvis with ElevenLabs', () => {
     const parts = chunks(MANY_CHUNKS)
     expect(parts).toHaveLength(6)
 
-    const run = $.command.run(JARVIS)
+    const run = $.command.run(RUN)
     for (let i = 0; i < 4; i += 1) {
       await w.clock.advance(1000)
     }
@@ -274,7 +274,7 @@ describe('/jarvis with ElevenLabs', () => {
   test('a stop also keeps the chunks not yet requested from being requested', async ($, on) => {
     const w = world(on, { reply: answered(`de\n${MANY_CHUNKS}`), httpDelayMs: 1000 })
 
-    const run = $.command.run(JARVIS)
+    const run = $.command.run(RUN)
     await w.clock.advance(1000)
     await run
     expect(w.played).toHaveLength(1)
@@ -289,7 +289,7 @@ describe('/jarvis with ElevenLabs', () => {
   test('retries a 429 instead of falling back to the system voice', async ($, on) => {
     const w = world(on, { httpQueue: [TOO_MANY] })
 
-    const run = $.command.run(JARVIS)
+    const run = $.command.run(RUN)
     await w.clock.advance(600)
     const result = await run
     await w.clock.settle()
@@ -303,21 +303,21 @@ describe('/jarvis with ElevenLabs', () => {
   test('falls back to the system voice once the 429 retries are used up', async ($, on) => {
     const w = world(on, { httpQueue: [TOO_MANY, TOO_MANY, TOO_MANY] })
 
-    const run = $.command.run(JARVIS)
+    const run = $.command.run(RUN)
     await w.clock.advance(600)
     await w.clock.advance(1200)
     const result = await run
     await w.clock.settle()
 
     expect(w.requests).toHaveLength(3)
-    expect(result.text).toContain('Systemstimme – ElevenLabs 429')
+    expect(result.text).toContain('system voice – ElevenLabs 429')
     expect(w.spoken).toHaveLength(1)
   })
 
   test('chunked off sends the whole briefing in one request', { options: { chunked: false } }, async ($, on) => {
     const w = world(on, { reply: answered(`de\n${LONG_BRIEFING}`) })
 
-    await $.command.run(JARVIS)
+    await $.command.run(RUN)
     await w.clock.settle()
 
     expect(w.requests.map(r => r.body.text)).toEqual([LONG_BRIEFING])
@@ -328,10 +328,10 @@ describe('/jarvis with ElevenLabs', () => {
       http: { status: 401, ok: false, headers: {}, text: JSON.stringify({ detail: { message: 'invalid key' } }) },
     })
 
-    const result = await $.command.run(JARVIS)
+    const result = await $.command.run(RUN)
     await w.clock.settle()
 
-    expect(result.text).toContain('Systemstimme – ElevenLabs 401: invalid key')
+    expect(result.text).toContain('system voice – ElevenLabs 401: invalid key')
     expect(w.spoken).toEqual([{ text: 'Alles erledigt. Keine Entscheidungen offen.', voice: 'Anna' }])
     expect(w.played).toEqual([])
     expect(await stopButton($)).toBeUndefined()
@@ -340,19 +340,19 @@ describe('/jarvis with ElevenLabs', () => {
   test('falls back to the system voice when no API key is found', async ($, on) => {
     const w = world(on, { passExit: 1 })
 
-    const result = await $.command.run(JARVIS)
+    const result = await $.command.run(RUN)
     await w.clock.settle()
 
-    expect(result.text).toContain('kein API-Key')
+    expect(result.text).toContain('no API key')
     expect(w.requests).toEqual([])
     expect(w.spoken).toHaveLength(1)
   })
 })
 
-describe('/jarvis briefing length', () => {
+describe('/voice-brief briefing length', () => {
   test('normal by default: up to 120 words, in the answer\'s own tone without a persona', async ($, on) => {
     const w = world(on)
-    await $.command.run(JARVIS)
+    await $.command.run(RUN)
 
     expect(w.systems[0]).toContain('At most 120 words.')
     expect(w.systems[0]).toContain('no persona')
@@ -361,28 +361,28 @@ describe('/jarvis briefing length', () => {
 
   test('the length option makes it short', { options: { length: 'short' } }, async ($, on) => {
     const w = world(on)
-    await $.command.run(JARVIS)
+    await $.command.run(RUN)
 
     expect(w.systems[0]).toContain('At most 60 words.')
   })
 
-  test('/jarvis kurz overrides the option for one run, /jarvis normal back', { options: { length: 'short' } }, async ($, on) => {
+  test('/voice-brief kurz overrides the option for one run, /voice-brief normal back', { options: { length: 'short' } }, async ($, on) => {
     const w = world(on)
-    await $.command.run({ ...JARVIS, args: 'normal' })
-    await $.command.run({ ...JARVIS, args: 'kurz' })
+    await $.command.run({ ...RUN, args: 'normal' })
+    await $.command.run({ ...RUN, args: 'kurz' })
 
     expect(w.systems[0]).toContain('At most 120 words.')
     expect(w.systems[1]).toContain('At most 60 words.')
   })
 })
 
-describe('/jarvis in general', () => {
+describe('/voice-brief in general', () => {
   test('provider system speaks with the system voice and never calls ElevenLabs', {
     options: { provider: 'system', systemVoiceEn: 'Daniel' },
   }, async ($, on) => {
     const w = world(on, { reply: answered('en\nAll done.') })
 
-    const result = await $.command.run(JARVIS)
+    const result = await $.command.run(RUN)
     await w.clock.settle()
 
     expect(result.text).toBe('All done.')
@@ -393,10 +393,10 @@ describe('/jarvis in general', () => {
   test('says so and stays silent when there is no answer yet', async ($, on) => {
     const w = world(on, { messages: [user('Hallo')] })
 
-    const result = await $.command.run(JARVIS)
+    const result = await $.command.run(RUN)
     await w.clock.settle()
 
-    expect(result.text).toContain('Noch keine Antwort')
+    expect(result.text).toContain('No answer yet')
     expect(w.prompts).toEqual([])
     expect(w.played).toEqual([])
     expect(w.spoken).toEqual([])
@@ -405,7 +405,7 @@ describe('/jarvis in general', () => {
   test('reports a failed briefing call without speaking', async ($, on) => {
     const w = world(on, { reply: { isAnswered: false, reason: 'empty-reply', usage } })
 
-    const result = await $.command.run(JARVIS)
+    const result = await $.command.run(RUN)
     await w.clock.settle()
 
     expect(result.text).toContain('empty-reply')
@@ -428,7 +428,7 @@ describe('/jarvis in general', () => {
 
 describe('briefing helpers', () => {
   test('lastTurn skips trailing user rows and stops at the prompt', () => {
-    const turn = lastTurn([user('alt'), assistant('alt'), user('neu'), assistant('eins'), toolResult(), assistant('zwei'), user('/jarvis')])
+    const turn = lastTurn([user('alt'), assistant('alt'), user('neu'), assistant('eins'), toolResult(), assistant('zwei'), user('/voice-brief')])
 
     expect(turn).toEqual({ prompt: 'neu', answer: 'eins\n\nzwei' })
   })
@@ -451,10 +451,10 @@ describe('briefing helpers', () => {
   })
 
   test('toSpeech drops file paths but keeps the sentence around them', () => {
-    expect(toSpeech('Der Bug in src/auth/session.ts und ~/.claude/x.md ist weg, mods/jarvis/hooks auch. Mergen ja/nein, und/oder warten?')).toBe(
+    expect(toSpeech('Der Bug in src/auth/session.ts und ~/.claude/x.md ist weg, mods/brief/hooks auch. Mergen ja/nein, und/oder warten?')).toBe(
       'Der Bug in und ist weg, auch. Mergen ja/nein, und/oder warten?',
     )
-    expect(toSpeech('Ruf /jarvis auf, Logs in /var/log/x und ./build.')).toBe('Ruf /jarvis auf, Logs in und .')
+    expect(toSpeech('Ruf /voice-brief auf, Logs in /var/log/x und ./build.')).toBe('Ruf /voice-brief auf, Logs in und .')
   })
 
   test('parseBriefing falls back to guessing the language when the tag is missing', () => {

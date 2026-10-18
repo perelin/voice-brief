@@ -6,7 +6,7 @@ import type { Lang, Length } from './briefing'
 import { synthesizeRetrying } from './elevenlabs'
 import type { ElevenLabsRequest } from './elevenlabs'
 
-const isSpeaking = atom({ plugin: 'jarvis', key: 'isSpeaking' } as const, false)
+const isSpeaking = atom({ plugin: 'voice-brief', key: 'isSpeaking' } as const, false)
 
 // Module state: a reload starts silent and reads the key again.
 const voice: { current?: AbortController; apiKey?: string } = {}
@@ -47,20 +47,20 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
-      name: 'jarvis',
+      name: 'voice-brief',
       description: 'Speak a briefing of the last answer: gist, next step, open decisions',
-      argumentHint: '[kurz|normal]',
+      argumentHint: '[short|normal]',
     })
 
     return next(e)
   })
 
-  on('command.run', { command: 'jarvis' }, async ($, e) => {
+  on('command.run', { command: 'voice-brief' }, async ($, e) => {
     stop($)
 
     const turn = lastTurn(await $.session.messages())
     if (turn === null) {
-      return { text: 'Noch keine Antwort, die ich zusammenfassen könnte.' }
+      return { text: 'No answer yet to brief.' }
     }
 
     const reply = await $.model.complete({
@@ -72,12 +72,12 @@ export const register: Register = (on, options) => {
       timeoutMs: 30000,
     })
     if (!reply.isAnswered) {
-      return { text: `Kein Briefing möglich (${reply.reason}).` }
+      return { text: `No briefing (${reply.reason}).` }
     }
 
     const { lang, speech } = parseBriefing(reply.text)
     if (!speech) {
-      return { text: 'Das Briefing kam leer zurück.' }
+      return { text: 'The briefing came back empty.' }
     }
 
     let fallback = ''
@@ -104,10 +104,10 @@ export const register: Register = (on, options) => {
 
     void $.audio
       .speak(speech, { voice: systemVoices[lang] })
-      .catch((error: unknown) => $.ui.toast(`jarvis: ${String(error)}`))
+      .catch((error: unknown) => $.ui.toast(`voice-brief: ${String(error)}`))
 
-    return { text: fallback ? `${speech}\n\n(Systemstimme – ${fallback})` : speech }
-  }).catch(() => ({ text: 'Jarvis ist gestolpert, Details im Debug-Log (claude --debug).' }))
+    return { text: fallback ? `${speech}\n\n(system voice – ${fallback})` : speech }
+  }).catch(() => ({ text: 'voice-brief failed; see the debug log (claude --debug).' }))
 
   on('prompt.edit', ($, e, next) => {
     stop($)
@@ -123,7 +123,7 @@ export const register: Register = (on, options) => {
 
     return (
       <Box>
-        <Text dimColor>🔊 Jarvis spricht – tippen oder </Text>
+        <Text dimColor>🔊 Speaking – type to stop, or </Text>
         <Button key="stop" label="Stop" hotkey="s" onPress={() => stop($)} />
       </Box>
     )
@@ -162,7 +162,7 @@ function synthesizeAll(
     const audio =
       slot === undefined
         ? synthesizeRetrying($, request)
-        : slot.then(() => (signal.aborted ? Promise.reject(new Error('gestoppt')) : synthesizeRetrying($, request)))
+        : slot.then(() => (signal.aborted ? Promise.reject(new Error('stopped')) : synthesizeRetrying($, request)))
     // Awaited later by playAll; after a stop nobody awaits it, which must not surface as unhandled.
     audio.catch(() => undefined)
     pending.push(audio)
@@ -184,7 +184,9 @@ async function playAll($: EngineInterface, controller: AbortController, pending:
       }
     }
   } catch (error) {
-    $.ui.toast(`jarvis: ${String(error)}`)
+    if (!controller.signal.aborted) {
+      $.ui.toast(`voice-brief: ${String(error)}`)
+    }
   } finally {
     await settle($, controller)
   }
@@ -208,5 +210,5 @@ async function passShow($: EngineInterface, entry: string): Promise<string> {
       // try the next location
     }
   }
-  throw new Error(`kein API-Key (ELEVENLABS_API_KEY oder pass ${entry})`)
+  throw new Error(`no API key (ELEVENLABS_API_KEY or pass ${entry})`)
 }
