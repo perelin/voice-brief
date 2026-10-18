@@ -10,7 +10,7 @@ import type {
   SessionMessage,
 } from 'claude-code'
 
-import { lastTurn, parseBriefing, toSpeech } from '../hooks/briefing'
+import { chunks, lastTurn, parseBriefing, toSpeech } from '../hooks/briefing'
 
 const usage = {
   input_tokens: 1,
@@ -43,6 +43,14 @@ const BAND = {
 const JONAS = 'yxa1FRMiemMJZYjqarqk'
 const PLAY_MS = 5000
 
+const LONG_BRIEFING = [
+  'Kurz die Lage: Der Token-Refresh lief nie, deshalb wurden Nutzer ausgeloggt.',
+  'Der Fix ist vorbereitet und liegt auf einem eigenen Branch, gemerged ist noch nichts, und die Tests für den Refresh-Pfad laufen lokal grün.',
+  'Nächster Schritt: Schau dir den Diff an.',
+  'Erstens: direkt mergen oder erst Review. Empfehlung: erst Review, weil ein Fehler in der Authentifizierung alle Nutzer trifft und ein Rollback unter Last teuer wäre.',
+  'Zweitens: alte Sessions invalidieren, ja oder nein. Empfehlung: ja.',
+].join(' ')
+
 const user = (text: string): SessionMessage => ({ role: 'user', text, toolUses: [] })
 const assistant = (text: string): SessionMessage => ({ role: 'assistant', text, toolUses: [] })
 const toolResult = (): SessionMessage => ({
@@ -54,13 +62,6 @@ const toolResult = (): SessionMessage => ({
 
 const answered = (text: string): ModelCompleteResult => ({ isAnswered: true, text, usage })
 
-const audioOk: HttpResponse = {
-  status: 200,
-  ok: true,
-  headers: {},
-  text: JSON.stringify({ audio_base64: 'QUJD', alignment: {} }),
-}
-
 type Setup = {
   messages?: SessionMessage[]
   reply?: ModelCompleteResult
@@ -68,16 +69,20 @@ type Setup = {
   passExit?: number
 }
 
+type Request = { url: string; headers?: Record<string, string>; body: Record<string, string> }
+
 const world = (on: On, setup: Setup = {}) => {
   const prompts: string[] = []
+  const systems: string[] = []
   const spoken: { text: string; voice?: string }[] = []
   const played: string[] = []
-  const requests: { url: string; headers?: Record<string, string>; body: Record<string, string> }[] = []
+  const requests: Request[] = []
   const clock = mock.clock(on)
   mock.env(on, {})
   on('session.messages', () => ({ value: setup.messages ?? [user('Q'), assistant('A')] }))
   on('model.complete', (_$, e) => {
     prompts.push(e.prompt)
+    systems.push(e.system ?? '')
 
     return { value: setup.reply ?? answered('de\nAlles erledigt. Keine Entscheidungen offen.') }
   })
@@ -90,10 +95,12 @@ const world = (on: On, setup: Setup = {}) => {
       isStderrTruncated: false,
     },
   }))
+  // The "audio" is the chunk's own text, so playback order is readable.
   on('http.fetch', (_$, e) => {
-    requests.push({ url: e.url, headers: e.init?.headers, body: JSON.parse(e.init?.body ?? '{}') })
+    const body = JSON.parse(e.init?.body ?? '{}') as Record<string, string>
+    requests.push({ url: e.url, headers: e.init?.headers, body })
 
-    return { value: setup.http ?? audioOk }
+    return { value: setup.http ?? { status: 200, ok: true, headers: {}, text: JSON.stringify({ audio_base64: body.text }) } }
   })
   on('audio.play', async (_$, e) => {
     played.push(e.clip.base64 ?? '')
@@ -110,7 +117,7 @@ const world = (on: On, setup: Setup = {}) => {
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => h($.ui.resolve(e).Box, { key: 'engine-band' }) as RenderElement)
   on('prompt.edit', (_$, e) => ({ text: e.text, cursor: e.cursor }))
 
-  return { prompts, spoken, played, requests, clock }
+  return { prompts, systems, spoken, played, requests, clock }
 }
 
 // The kit raises prompt.edit like any engine event, but its typed $ leaves the noun out.
@@ -133,7 +140,7 @@ const stopButton = async ($: Engine) => {
 }
 
 describe('/jarvis with ElevenLabs', () => {
-  test('speaks a German briefing with the German voice and shows Stop while it plays', async ($, on) => {
+  test('speaks a German briefing with the German voice on eleven_v4 and shows Stop while it plays', async ($, on) => {
     const w = world(on, {
       messages: [
         user('Bau mir den Mod'),
@@ -151,8 +158,8 @@ describe('/jarvis with ElevenLabs', () => {
     expect(w.requests).toHaveLength(1)
     expect(w.requests[0]?.url).toContain(`/v1/text-to-speech/${JONAS}/with-timestamps`)
     expect(w.requests[0]?.headers?.['xi-api-key']).toBe('sk_test')
-    expect(w.requests[0]?.body).toEqual({ text: result.text, model_id: 'eleven_flash_v2_5', language_code: 'de' })
-    expect(w.played).toEqual(['QUJD'])
+    expect(w.requests[0]?.body).toEqual({ text: result.text, model_id: 'eleven_v4', language_code: 'de' })
+    expect(w.played).toEqual([result.text])
     expect(w.spoken).toEqual([])
     expect(w.prompts[0]).toContain('<question>\nBau mir den Mod\n</question>')
     expect(await stopButton($)).toBeDefined()
@@ -176,15 +183,44 @@ describe('/jarvis with ElevenLabs', () => {
     })
   })
 
-  test('typing in the prompt stops the voice', async ($, on) => {
-    const w = world(on)
+  test('a long briefing is synthesized in chunks up front and played in order with its neighbours', async ($, on) => {
+    const w = world(on, { reply: answered(`de\n${LONG_BRIEFING}`) })
+    const parts = chunks(LONG_BRIEFING)
+    expect(parts.length).toBeGreaterThan(2)
+
+    const result = await $.command.run(JARVIS)
+    await w.clock.settle()
+
+    expect(result.text).toBe(LONG_BRIEFING)
+    expect(w.requests.map(r => r.body.text)).toEqual(parts)
+    expect(w.requests[0]?.body.previous_text).toBeUndefined()
+    expect(w.requests[1]?.body.previous_text).toBe(parts[0])
+    expect(w.requests[1]?.body.next_text).toBe(parts[2])
+    expect(w.played).toEqual([parts[0]])
+
+    await w.clock.advance(PLAY_MS)
+    expect(w.played).toEqual([parts[0], parts[1]])
+    expect(await stopButton($)).toBeDefined()
+
+    for (let i = 2; i < parts.length; i += 1) {
+      await w.clock.advance(PLAY_MS)
+    }
+    expect(w.played).toEqual(parts)
+    await w.clock.advance(PLAY_MS)
+    expect(await stopButton($)).toBeUndefined()
+  })
+
+  test('typing stops the voice and drops the chunks still to come', async ($, on) => {
+    const w = world(on, { reply: answered(`de\n${LONG_BRIEFING}`) })
     await $.command.run(JARVIS)
     await w.clock.settle()
     expect(await stopButton($)).toBeDefined()
 
     await typeKey($, 'a')
-
     expect(await stopButton($)).toBeUndefined()
+
+    await w.clock.advance(PLAY_MS * 5)
+    expect(w.played).toHaveLength(1)
   })
 
   test('the Stop button stops the voice', async ($, on) => {
@@ -196,6 +232,15 @@ describe('/jarvis with ElevenLabs', () => {
     await band.press({ key: 'stop' })
     expect(await band.find({ key: 'stop' })).toBeUndefined()
     await band.unmount()
+  })
+
+  test('chunked off sends the whole briefing in one request', { options: { chunked: false } }, async ($, on) => {
+    const w = world(on, { reply: answered(`de\n${LONG_BRIEFING}`) })
+
+    await $.command.run(JARVIS)
+    await w.clock.settle()
+
+    expect(w.requests.map(r => r.body.text)).toEqual([LONG_BRIEFING])
   })
 
   test('falls back to the system voice when ElevenLabs fails, without offering Stop', async ($, on) => {
@@ -221,6 +266,31 @@ describe('/jarvis with ElevenLabs', () => {
     expect(result.text).toContain('kein API-Key')
     expect(w.requests).toEqual([])
     expect(w.spoken).toHaveLength(1)
+  })
+})
+
+describe('/jarvis briefing length', () => {
+  test('normal by default: up to 120 words', async ($, on) => {
+    const w = world(on)
+    await $.command.run(JARVIS)
+
+    expect(w.systems[0]).toContain('At most 120 words.')
+  })
+
+  test('the length option makes it short', { options: { length: 'short' } }, async ($, on) => {
+    const w = world(on)
+    await $.command.run(JARVIS)
+
+    expect(w.systems[0]).toContain('At most 60 words.')
+  })
+
+  test('/jarvis kurz overrides the option for one run, /jarvis normal back', { options: { length: 'short' } }, async ($, on) => {
+    const w = world(on)
+    await $.command.run({ ...JARVIS, args: 'normal' })
+    await $.command.run({ ...JARVIS, args: 'kurz' })
+
+    expect(w.systems[0]).toContain('At most 120 words.')
+    expect(w.systems[1]).toContain('At most 60 words.')
   })
 })
 
@@ -279,6 +349,15 @@ describe('briefing helpers', () => {
     const turn = lastTurn([user('alt'), assistant('alt'), user('neu'), assistant('eins'), toolResult(), assistant('zwei'), user('/jarvis')])
 
     expect(turn).toEqual({ prompt: 'neu', answer: 'eins\n\nzwei' })
+  })
+
+  test('chunks keep a short first chunk, larger later ones, and never split a sentence', () => {
+    const parts = chunks(LONG_BRIEFING)
+
+    expect(parts[0]).toBe('Kurz die Lage: Der Token-Refresh lief nie, deshalb wurden Nutzer ausgeloggt.')
+    expect(parts.join(' ')).toBe(LONG_BRIEFING)
+    expect(parts.slice(1).every(part => part.length <= 400)).toBe(true)
+    expect(chunks('Ein Satz.')).toEqual(['Ein Satz.'])
   })
 
   test('toSpeech drops markdown, code and links', () => {

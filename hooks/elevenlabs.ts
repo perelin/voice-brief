@@ -8,10 +8,13 @@ export type ElevenLabsRequest = {
   model: string
   lang: Lang
   text: string
+  // The neighbouring chunks, so intonation carries across the cut.
+  previousText?: string
+  nextText?: string
 }
 
 // Only these models take language_code; multilingual_v2 rejects it.
-const TAKES_LANGUAGE = /^eleven_(flash|turbo|v4_turbo)/
+const TAKES_LANGUAGE = /^eleven_(flash|turbo|v4)/
 
 // with-timestamps answers JSON with the MP3 as base64; $.http.fetch only reads text bodies.
 export async function synthesize($: EngineInterface, request: ElevenLabsRequest): Promise<string> {
@@ -19,6 +22,12 @@ export async function synthesize($: EngineInterface, request: ElevenLabsRequest)
   const body: Record<string, string> = { text: request.text, model_id: request.model }
   if (TAKES_LANGUAGE.test(request.model)) {
     body.language_code = request.lang
+  }
+  if (request.previousText) {
+    body.previous_text = request.previousText
+  }
+  if (request.nextText) {
+    body.next_text = request.nextText
   }
 
   const response = await $.http.fetch(url, {

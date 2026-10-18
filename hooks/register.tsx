@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import { SYSTEM, briefingPrompt, lastTurn, parseBriefing } from './briefing'
-import type { Lang } from './briefing'
+import { briefingPrompt, chunks, lastTurn, parseBriefing, systemPrompt } from './briefing'
+import type { Lang, Length } from './briefing'
 import { synthesize } from './elevenlabs'
+import type { ElevenLabsRequest } from './elevenlabs'
 
 const isSpeaking = atom({ plugin: 'jarvis', key: 'isSpeaking' } as const, false)
 
@@ -16,10 +17,24 @@ const option = (options: PluginOptions, key: string, fallback: string): string =
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
 
+const lengthFrom = (args: string, fallback: Length): Length => {
+  const word = args.trim().toLowerCase()
+  if (word === 'kurz' || word === 'short') {
+    return 'short'
+  }
+  if (word === 'normal' || word === 'lang' || word === 'long') {
+    return 'normal'
+  }
+
+  return fallback
+}
+
 export const register: Register = (on, options) => {
   const model = option(options, 'model', 'haiku')
+  const length: Length = option(options, 'length', 'normal') === 'short' ? 'short' : 'normal'
+  const isChunked = options.chunked !== false
   const provider = option(options, 'provider', 'elevenlabs')
-  const elevenModel = option(options, 'elevenModel', 'eleven_flash_v2_5')
+  const elevenModel = option(options, 'elevenModel', 'eleven_v4')
   const elevenVoices: Record<Lang, string> = {
     de: option(options, 'elevenVoiceDe', 'yxa1FRMiemMJZYjqarqk'),
     en: option(options, 'elevenVoiceEn', 'BNgbHR0DNeZixGQVzloa'),
@@ -34,12 +49,13 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'jarvis',
       description: 'Speak a briefing of the last answer: gist, next step, open decisions',
+      argumentHint: '[kurz|normal]',
     })
 
     return next(e)
   })
 
-  on('command.run', { command: 'jarvis' }, async $ => {
+  on('command.run', { command: 'jarvis' }, async ($, e) => {
     stop($)
 
     const turn = lastTurn(await $.session.messages())
@@ -49,7 +65,7 @@ export const register: Register = (on, options) => {
 
     const reply = await $.model.complete({
       model,
-      system: SYSTEM,
+      system: systemPrompt(lengthFrom(e.args, length)),
       prompt: briefingPrompt(turn),
       maxTokens: 600,
       effort: 'low',
@@ -71,9 +87,12 @@ export const register: Register = (on, options) => {
       await update($, isSpeaking, () => true)
       try {
         const key = await loadKey($, passEntry)
-        const audio = await synthesize($, { key, voiceId: elevenVoices[lang], model: elevenModel, lang, text: speech })
+        const parts = isChunked ? chunks(speech) : [speech]
+        // Every request leaves while the hook runs; only the first is awaited before the voice starts.
+        const pending = synthesizeAll($, parts, { key, voiceId: elevenVoices[lang], model: elevenModel, lang })
+        await pending[0]
         if (!controller.signal.aborted) {
-          void play($, controller, audio)
+          void playAll($, controller, pending)
         }
 
         return { text: speech }
@@ -128,9 +147,34 @@ async function settle($: EngineInterface, controller: AbortController): Promise<
   }
 }
 
-async function play($: EngineInterface, controller: AbortController, audio: string): Promise<void> {
+function synthesizeAll(
+  $: EngineInterface,
+  parts: readonly string[],
+  base: Omit<ElevenLabsRequest, 'text' | 'previousText' | 'nextText'>,
+): Promise<string>[] {
+  const pending: Promise<string>[] = []
+  for (let i = 0; i < parts.length; i += 1) {
+    const request = synthesize($, { ...base, text: parts[i] ?? '', previousText: parts[i - 1], nextText: parts[i + 1] })
+    // Awaited later by playAll; after a stop nobody awaits it, which must not surface as unhandled.
+    request.catch(() => undefined)
+    pending.push(request)
+  }
+
+  return pending
+}
+
+async function playAll($: EngineInterface, controller: AbortController, pending: readonly Promise<string>[]): Promise<void> {
   try {
-    await $.audio.play({ base64: audio, mime: 'audio/mpeg' }, { signal: controller.signal })
+    for (const next of pending) {
+      const audio = await next
+      if (controller.signal.aborted) {
+        return
+      }
+      await $.audio.play({ base64: audio, mime: 'audio/mpeg' }, { signal: controller.signal })
+      if (controller.signal.aborted) {
+        return
+      }
+    }
   } catch (error) {
     $.ui.toast(`jarvis: ${String(error)}`)
   } finally {

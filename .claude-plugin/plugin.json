@@ -1,6 +1,6 @@
 {
   "name": "jarvis",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "/jarvis speaks a briefing of the last answer: gist, what to do next, which decisions are open. Never speaks on its own; typing stops it.",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -9,6 +9,19 @@
       "title": "Briefing model",
       "description": "Model alias or id that turns the last answer into the spoken briefing.",
       "default": "haiku"
+    },
+    "length": {
+      "type": "string",
+      "title": "Briefing length",
+      "description": "normal is up to 120 words, short up to 60. /jarvis kurz or /jarvis normal overrides it for one run.",
+      "default": "normal",
+      "options": ["normal", "short"]
+    },
+    "chunked": {
+      "type": "boolean",
+      "title": "Speak in chunks",
+      "description": "Synthesizes the briefing sentence group by sentence group and starts with a short first chunk, so the voice begins sooner.",
+      "default": true
     },
     "provider": {
       "type": "string",
@@ -20,8 +33,8 @@
     "elevenModel": {
       "type": "string",
       "title": "ElevenLabs model",
-      "description": "ElevenLabs model id, e.g. eleven_flash_v2_5 (fast, half price) or eleven_v4.",
-      "default": "eleven_flash_v2_5"
+      "description": "ElevenLabs model id: eleven_v4 (best, slowest, ignores speed), eleven_v4_turbo, or eleven_flash_v2_5 (fastest, half price).",
+      "default": "eleven_v4"
     },
     "elevenVoiceDe": {
       "type": "string",
