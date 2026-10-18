@@ -61,11 +61,15 @@ export const briefingPrompt = (turn: Turn): string =>
     .filter(Boolean)
     .join('\n\n')
 
+// Rooted (/x, ~/x, ./x), with a file extension, or three segments deep; "ja/nein" stays.
+const PATH = /(?<![\w/])(?:~|\.{1,2})?\/[\w.@-]+(?:\/[\w.@-]+)*|\b(?:[\w.@-]+\/)+[\w@-]+\.[a-z]\w{0,4}\b|\b(?:[\w.@-]+\/){2,}[\w.@-]+/gi
+
 // The prompt already asks for plain speech; this catches what slips through.
 export const toSpeech = (text: string): string =>
   text
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/https?:\/\/\S+/g, ' ')
+    .replace(PATH, ' ')
     .replace(/^\s*(?:[-*+>]|\d+\.)\s+/gm, '')
     .replace(/[`*#_|>]/g, '')
     .replace(/\s+/g, ' ')

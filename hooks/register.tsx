@@ -1,0 +1,160 @@
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register } from 'claude-code'
+
+import { SYSTEM, briefingPrompt, lastTurn, parseBriefing } from './briefing'
+import type { Lang } from './briefing'
+import { synthesize } from './elevenlabs'
+
+const isSpeaking = atom({ plugin: 'jarvis', key: 'isSpeaking' } as const, false)
+
+// Module state: a reload starts silent and reads the key again.
+const voice: { current?: AbortController; apiKey?: string } = {}
+
+const option = (options: PluginOptions, key: string, fallback: string): string => {
+  const value = options[key]
+
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+export const register: Register = (on, options) => {
+  const model = option(options, 'model', 'haiku')
+  const provider = option(options, 'provider', 'elevenlabs')
+  const elevenModel = option(options, 'elevenModel', 'eleven_flash_v2_5')
+  const elevenVoices: Record<Lang, string> = {
+    de: option(options, 'elevenVoiceDe', 'yxa1FRMiemMJZYjqarqk'),
+    en: option(options, 'elevenVoiceEn', 'BNgbHR0DNeZixGQVzloa'),
+  }
+  const passEntry = option(options, 'apiKeyPassEntry', 'services/elevenlabs/api-key')
+  const systemVoices: Record<Lang, string> = {
+    de: option(options, 'systemVoiceDe', 'Anna'),
+    en: option(options, 'systemVoiceEn', 'Samantha'),
+  }
+
+  on('session.start', async ($, e, next) => {
+    await $.command.register({
+      name: 'jarvis',
+      description: 'Speak a briefing of the last answer: gist, next step, open decisions',
+    })
+
+    return next(e)
+  })
+
+  on('command.run', { command: 'jarvis' }, async $ => {
+    stop($)
+
+    const turn = lastTurn(await $.session.messages())
+    if (turn === null) {
+      return { text: 'Noch keine Antwort, die ich zusammenfassen könnte.' }
+    }
+
+    const reply = await $.model.complete({
+      model,
+      system: SYSTEM,
+      prompt: briefingPrompt(turn),
+      maxTokens: 600,
+      effort: 'low',
+      timeoutMs: 30000,
+    })
+    if (!reply.isAnswered) {
+      return { text: `Kein Briefing möglich (${reply.reason}).` }
+    }
+
+    const { lang, speech } = parseBriefing(reply.text)
+    if (!speech) {
+      return { text: 'Das Briefing kam leer zurück.' }
+    }
+
+    let fallback = ''
+    if (provider === 'elevenlabs') {
+      const controller = new AbortController()
+      voice.current = controller
+      await update($, isSpeaking, () => true)
+      try {
+        const key = await loadKey($, passEntry)
+        const audio = await synthesize($, { key, voiceId: elevenVoices[lang], model: elevenModel, lang, text: speech })
+        if (!controller.signal.aborted) {
+          void play($, controller, audio)
+        }
+
+        return { text: speech }
+      } catch (error) {
+        fallback = error instanceof Error ? error.message : String(error)
+        // The system voice cannot be interrupted, so the band never offers a Stop for it.
+        await settle($, controller)
+      }
+    }
+
+    void $.audio
+      .speak(speech, { voice: systemVoices[lang] })
+      .catch((error: unknown) => $.ui.toast(`jarvis: ${String(error)}`))
+
+    return { text: fallback ? `${speech}\n\n(Systemstimme – ${fallback})` : speech }
+  }).catch(() => ({ text: 'Jarvis ist gestolpert, Details im Debug-Log (claude --debug).' }))
+
+  on('prompt.edit', ($, e, next) => {
+    stop($)
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey || !(await read($, isSpeaking))) {
+      return next(e)
+    }
+    const { Box, Button, Text } = $.ui.resolve(e)
+
+    return (
+      <Box>
+        <Text dimColor>🔊 Jarvis spricht – tippen oder </Text>
+        <Button key="stop" label="Stop" hotkey="s" onPress={() => stop($)} />
+      </Box>
+    )
+  })
+}
+
+function stop($: EngineInterface): void {
+  if (voice.current === undefined) {
+    return
+  }
+  voice.current.abort()
+  voice.current = undefined
+  void update($, isSpeaking, () => false)
+}
+
+async function settle($: EngineInterface, controller: AbortController): Promise<void> {
+  if (voice.current === controller) {
+    voice.current = undefined
+    await update($, isSpeaking, () => false)
+  }
+}
+
+async function play($: EngineInterface, controller: AbortController, audio: string): Promise<void> {
+  try {
+    await $.audio.play({ base64: audio, mime: 'audio/mpeg' }, { signal: controller.signal })
+  } catch (error) {
+    $.ui.toast(`jarvis: ${String(error)}`)
+  } finally {
+    await settle($, controller)
+  }
+}
+
+async function loadKey($: EngineInterface, passEntry: string): Promise<string> {
+  voice.apiKey ??= (await $.env.get('ELEVENLABS_API_KEY'))?.trim() || (await passShow($, passEntry))
+
+  return voice.apiKey
+}
+
+async function passShow($: EngineInterface, entry: string): Promise<string> {
+  for (const bin of ['pass', '/opt/homebrew/bin/pass']) {
+    try {
+      const { exitCode, stdout } = await $.process.run([bin, 'show', entry], { timeoutMs: 20000 })
+      const key = stdout.split('\n')[0]?.trim()
+      if (exitCode === 0 && key) {
+        return key
+      }
+    } catch {
+      // try the next location
+    }
+  }
+  throw new Error(`kein API-Key (ELEVENLABS_API_KEY oder pass ${entry})`)
+}

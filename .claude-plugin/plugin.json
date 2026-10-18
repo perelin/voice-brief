@@ -1,7 +1,8 @@
 {
   "name": "jarvis",
-  "version": "0.1.0",
-  "description": "/jarvis speaks a briefing of the last answer: gist, what to do next, which decisions are open. Never speaks on its own.",
+  "version": "0.2.0",
+  "description": "/jarvis speaks a briefing of the last answer: gist, what to do next, which decisions are open. Never speaks on its own; typing stops it.",
+  "types": "./types/index.d.ts",
   "userConfig": {
     "model": {
       "type": "string",
@@ -9,16 +10,47 @@
       "description": "Model alias or id that turns the last answer into the spoken briefing.",
       "default": "haiku"
     },
-    "voiceDe": {
+    "provider": {
       "type": "string",
-      "title": "German voice",
-      "description": "macOS system voice for German briefings (say -v '?' lists them).",
+      "title": "Voice",
+      "description": "elevenlabs speaks with ElevenLabs and falls back to the system voice on failure; system always uses the system voice (cannot be interrupted).",
+      "default": "elevenlabs",
+      "options": ["elevenlabs", "system"]
+    },
+    "elevenModel": {
+      "type": "string",
+      "title": "ElevenLabs model",
+      "description": "ElevenLabs model id, e.g. eleven_flash_v2_5 (fast, half price) or eleven_v4.",
+      "default": "eleven_flash_v2_5"
+    },
+    "elevenVoiceDe": {
+      "type": "string",
+      "title": "ElevenLabs voice (German)",
+      "description": "Voice id for German briefings. Default: Jonas – dry and factual.",
+      "default": "yxa1FRMiemMJZYjqarqk"
+    },
+    "elevenVoiceEn": {
+      "type": "string",
+      "title": "ElevenLabs voice (English)",
+      "description": "Voice id for English briefings. Default: David – Deep and Engaging Storyteller (British).",
+      "default": "BNgbHR0DNeZixGQVzloa"
+    },
+    "apiKeyPassEntry": {
+      "type": "string",
+      "title": "API key in pass",
+      "description": "pass entry holding the ElevenLabs API key (first line). ELEVENLABS_API_KEY in the environment wins.",
+      "default": "services/elevenlabs/api-key"
+    },
+    "systemVoiceDe": {
+      "type": "string",
+      "title": "System voice (German)",
+      "description": "macOS voice for German fallback briefings (say -v '?' lists them).",
       "default": "Anna"
     },
-    "voiceEn": {
+    "systemVoiceEn": {
       "type": "string",
-      "title": "English voice",
-      "description": "macOS system voice for English briefings (say -v '?' lists them).",
+      "title": "System voice (English)",
+      "description": "macOS voice for English fallback briefings.",
       "default": "Samantha"
     }
   }
